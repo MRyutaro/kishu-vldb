@@ -51,6 +51,7 @@ import nbformat
 import os
 import time
 import uuid
+import sys
 
 from dataclasses import dataclass
 from IPython.core.interactiveshell import InteractiveShell
@@ -70,7 +71,7 @@ from kishu.exceptions import (
 from kishu.jupyter.namespace import Namespace
 from kishu.jupyter.runtime import JupyterRuntimeEnv
 from kishu.notebook_id import NotebookId
-from kishu.planning.ahg import AHG
+from kishu.planning.ahg import AHG, VersionedName
 from kishu.planning.plan import RestorePlan
 from kishu.planning.planner import CheckpointRestorePlanner, ChangedVariables
 from kishu.planning.variable_version_tracker import VariableVersionTracker
@@ -305,6 +306,7 @@ class KishuForJupyter:
         if os.environ.get(KishuForJupyter.ENV_KISHU_TEST_MODE, False):
             self._test_mode = True
             self._commit_id_mode = "counter"
+        self.total_commit_size = 0
 
     def __str__(self):
         return (
@@ -390,6 +392,8 @@ class KishuForJupyter:
         """
         Restores a variable state from commit_id.
         """
+        start = time.time()
+        commit_id = branch_or_commit_id
         # By default, checkout at commit ID in detach mode.
         branch_name: Optional[str] = None
         commit_id = branch_or_commit_id
@@ -402,76 +406,103 @@ class KishuForJupyter:
             branch_name = retrieved_branches[0].branch_name
             commit_id = retrieved_branches[0].commit_id
             is_detach = False
+        
 
         # Retrieve checkout plan.
         database_path = self.database_path()
         commit_id = KishuForJupyter.disambiguate_commit(self._notebook_id.key(), commit_id)
-        commit_entry = self._kishu_commit.get_commit(commit_id)
-        if commit_entry.restore_plan is None:
-            raise ValueError("No restore plan found for commit_id = {}".format(commit_id))
+        self._cr_planner.write_row("pre-checkout-time1", time.time() - start)
+        commit_entry_active_vses_string = self._kishu_commit.get_session_state(commit_id)
+        # commit_entry = self._kishu_commit.get_commit(commit_id)
+        # if commit_entry.restore_plan is None:
+        #     raise ValueError("No restore plan found for commit_id = {}".format(commit_id))
 
-        # Reset ipython kernel.
-        assert self._ip is not None
-        if self._ip.history_manager is not None:
-            self._ip.history_manager.reset(new_session=True)
+        # # Reset ipython kernel.
+        # assert self._ip is not None
+        # if self._ip.history_manager is not None:
+        #     self._ip.history_manager.reset(new_session=True)
 
-        # Restore notebook cells.
-        if not skip_notebook and commit_entry.raw_nb is not None:
-            self._checkout_notebook(commit_entry.raw_nb)
+        # # Restore notebook cells.
+        # if not skip_notebook and commit_entry.raw_nb is not None:
+        #     self._checkout_notebook(commit_entry.raw_nb)
 
-        # Restore list of executed cells.
-        if commit_entry.executed_cells is not None:
-            current_executed_cells = self._user_ns.ipython_in()
-            if current_executed_cells is not None:
-                current_executed_cells[:] = commit_entry.executed_cells[:]
+        # # Restore list of executed cells.
+        # if commit_entry.executed_cells is not None:
+        #     current_executed_cells = self._user_ns.ipython_in()
+        #     if current_executed_cells is not None:
+        #         current_executed_cells[:] = commit_entry.executed_cells[:]
 
-        # Restore execution count.
-        if commit_entry.execution_count is not None:
-            self._ip.execution_count = commit_entry.execution_count + 1  # _ip.execution_count is the next count.
+        # # Restore execution count.
+        # if commit_entry.execution_count is not None:
+        #     self._ip.execution_count = commit_entry.execution_count + 1  # _ip.execution_count is the next count.
 
         # Run the restore plan and update C/R planner with AHG from checkpoint file and new namespace.
-        if commit_entry.ahg_string is None:
-            raise ValueError("No Application History Graph found for commit_id = {}".format(commit_id))
+        #REVISION-----
+        #if commit_entry.active_vses_string is None:
+        #    raise ValueError("No Active VSes found for commit_id = {}".format(commit_id))
+        # if commit_entry.ahg_string is None:
+        #    raise ValueError("No Application History Graph found for commit_id = {}".format(commit_id))
 
         # Find the lowest common ancestor of current and target commit.
         current_commit_id = self._kishu_graph.head()
         if Config.get('PLANNER', 'incremental_cr', False):
             lca_commit = self._kishu_graph.get_common_ancestor(commit_id, current_commit_id)
             if lca_commit:
-                lca_commit_entry = self._kishu_commit.get_commit(lca_commit)
-                if lca_commit_entry.ahg_string is None:
-                    raise ValueError("No Application History Graph found for commit_id = {}".format(commit_id))
-                lca_ahg_string = lca_commit_entry.ahg_string
+                # lca_commit_entry = self._kishu_commit.get_commit(lca_commit)
+                # #REVISION--
+                # if lca_commit_entry.active_vses_string is None:
+                #     raise ValueError("No Active VSes found for commit_id = {}".format(commit_id))
+                # if lca_commit_entry.ahg_string is None:
+                #     raise ValueError("No Application History Graph found for commit_id = {}".format(commit_id))
+                # REVISION-----
+                #lca_active_vses_string = lca_commit_entry.active_vses_string
+                lca_active_vses_string = self._kishu_commit.get_session_state(lca_commit)
+                # lca_ahg_string = lca_commit_entry.ahg_string
+
+                #REVISION test
+                target_active_vns = set(AHG.deserialize_active_vses(commit_entry_active_vses_string))
+                lca_active_vns = set(AHG.deserialize_active_vses(lca_active_vses_string))
+                my_active_vns = {VersionedName(vs.name, vs.version) for vs in self._cr_planner._ahg.get_active_variable_snapshots()}
+                common_set = set()
+                for vn in target_active_vns:
+                    if vn in lca_active_vns and vn in my_active_vns:
+                        common_set.add(vn)
+                delta_set = target_active_vns.difference(common_set)
                 parent_commit_ids = [node.commit_id for node in self._kishu_graph.list_history(commit_id)]
             else:
-                lca_ahg_string = AHG.serialize()
-                parent_commit_ids = []
+                #REVISION-----
+                lca_active_vses_string = AHG.serialize_active_vses()
+                # lca_ahg_string = AHG.serialize()
 
-        result_ns = self._cr_planner.restore_state(
-            commit_entry.ahg_string,
-            commit_entry.restore_plan,
-            database_path,
-            commit_id,
-            parent_commit_ids if Config.get('PLANNER', 'incremental_cr', False) else None,
-            lca_ahg_string if Config.get('PLANNER', 'incremental_cr', False) else None
-        )
-        self._checkout_namespace(self._user_ns, result_ns)
+        self._cr_planner.write_row("pre-checkout-time", time.time() - start)
+        
 
-        self._variable_version_tracker.set_current(self._kishu_variable_version.
-                                                   get_variable_version_by_commit_id(commit_id))
+        # result_ns = self._cr_planner.restore_state(
+        #     #REVISION---
+        #     commit_entry.active_vses_string,
+        #     commit_entry.restore_plan,
+        #     database_path,
+        #     commit_id,
+        #     parent_commit_ids if Config.get('PLANNER', 'incremental_cr', False) else None,
+        #     lca_active_vses_string if Config.get('PLANNER', 'incremental_cr', False) else None
+        # )
+        # self._checkout_namespace(self._user_ns, result_ns)
 
-        # Update Kishu heads.
-        self._kishu_graph.jump(commit_id)
-        self._kishu_branch.update_head(
-            branch_name=branch_name,
-            commit_id=commit_id,
-            is_detach=is_detach,
-        )
+        # self._variable_version_tracker.set_current(self._kishu_variable_version.
+        #                                            get_variable_version_by_commit_id(commit_id))
 
-        # Create new commit when skip restoring notebook.
-        if self._enable_auto_commit_when_skip_notebook and skip_notebook:
-            new_commit = self.commit(f"Checked out vars from {commit_entry.message}")
-            return BareReprStr(f"Checkout {commit_id} only variables and commit {new_commit}.")
+        # # Update Kishu heads.
+        # self._kishu_graph.jump(commit_id)
+        # self._kishu_branch.update_head(
+        #     branch_name=branch_name,
+        #     commit_id=commit_id,
+        #     is_detach=is_detach,
+        # )
+
+        # # Create new commit when skip restoring notebook.
+        # if self._enable_auto_commit_when_skip_notebook and skip_notebook:
+        #     new_commit = self.commit(f"Checked out vars from {commit_entry.message}")
+        #     return BareReprStr(f"Checkout {commit_id} only variables and commit {new_commit}.")
 
         if is_detach:
             return BareReprStr(f"Checkout {commit_id} in detach mode.")
@@ -624,12 +655,14 @@ class KishuForJupyter:
         # Plan for checkpointing and restoration.
         checkpoint_start_time = time.time()
         entry.restore_plan, entry.varset_version = self._checkpoint(entry)
-        entry.ahg_string = self._cr_planner.serialize_ahg()
+        entry.active_vses_string = self._cr_planner.serialize_active_vses()
+        #REVISION-----
+        #entry.ahg_string = self._cr_planner.serialize_ahg()
         checkpoint_runtime_s = time.time() - checkpoint_start_time
         entry.checkpoint_runtime_s = checkpoint_runtime_s
 
         # Update other structures.
-        self._kishu_commit.store_commit(entry)
+        self.total_commit_size += self._kishu_commit.store_commit(entry)
         self._kishu_graph.step(entry.commit_id)
         self._step_branch(entry.commit_id)
 
@@ -669,6 +702,10 @@ class KishuForJupyter:
         start = time.time()
         checkpoint_plan.run(self._user_ns)
         self._cr_planner.write_row("checkpoint-time", time.time() - start)
+        try:
+            self._cr_planner.write_row("commit-table-size", self.total_commit_size + sys.getsizeof(self._cr_planner._ahg.serialize()))
+        except Exception as e:
+            self._cr_planner.write_row_text("commit-table-error", e)
 
         # Extra: generate variable version.
         data_version = hash(pickle.dumps(self._cr_planner.get_ahg().get_variable_snapshots()))

@@ -330,14 +330,67 @@ class NotebookRunner:
         kishu_checkout_code = get_kishu_checkout_str(cell_num_to_branch)
         original_cells.append(new_code_cell(source=kishu_checkout_code))
 
-        branch_cells = []
-        for i in range(cell_num_to_branch, len(notebook["cells"])):
-            branch_cells.append(notebook["cells"][i])
+        #branch_cells = []
+        #for i in range(cell_num_to_branch, len(notebook["cells"])):
+        #    branch_cells.append(notebook["cells"][i])
 
         # Insert kishu checkout code back to the previous branch.
-        original_cells.extend(branch_cells)
-        kishu_checkout_code = get_kishu_checkout_str(len(notebook["cells"]) - 4)
+        #original_cells.extend(branch_cells)
+        #kishu_checkout_code = get_kishu_checkout_str(len(notebook["cells"]))
+        #original_cells.append(new_code_cell(source=kishu_checkout_code))
+
+        # Execute the notebook cells.
+        start = time.time()
+        notebook.cells = original_cells
+        exec_prep = ExecutePreprocessor(timeout=6000, kernel_name="python3")
+        exec_prep.preprocess(notebook, {"metadata": {"path": self.path_to_notebook}})
+        print("runtime:", time.time() - start)
+
+    def execute_full_checkout_scalability_test(self) -> Tuple[Dict, Dict]:
+        """
+            Executes the full checkout test by storing the namespace at cell_num_to_restore,
+            and namespace after checking out cell_num_to_restore after completely executing the notebook.
+            Returns a tuple containing the namespace dict before/after checking out, respectively.
+
+            @param cell_num_to_branch: the cell execution number to branch at.
+        """
+        # Open the notebook.
+        with open(self.test_notebook) as nb_file:
+            notebook = read(nb_file, as_version=4)
+
+        # Strip all non-code (e.g., markdown) cells. We won't be needing them.
+        notebook["cells"] = [x for x in notebook["cells"] if x["cell_type"] == "code"]
+
+        original_cells = []
+        for i in notebook["cells"]:
+            original_cells.append(i)
+
+        # create a kishu initialization cell and add it to the start of the notebook.
+        original_cells.insert(0, new_code_cell(source=KISHU_INIT_STR))
+
+        # for i in range(50, 1001, 50):
+        #     kishu_checkout_code = get_kishu_checkout_str(i)
+        #     original_cells.insert(i + 1, new_code_cell(source=kishu_checkout_code))
+
+        kishu_checkout_code = get_kishu_checkout_str(80)
         original_cells.append(new_code_cell(source=kishu_checkout_code))
+        # for i in range(50, 1001, 50):
+        #     kishu_checkout_code = get_kishu_checkout_str(i)
+        #     original_cells.append(new_code_cell(source=kishu_checkout_code))
+            
+
+        # Insert kishu checkout code at end of notebook to the branch point.
+        # kishu_checkout_code = get_kishu_checkout_str(cell_num_to_branch)
+        # original_cells.append(new_code_cell(source=kishu_checkout_code))
+
+        #branch_cells = []
+        #for i in range(cell_num_to_branch, len(notebook["cells"])):
+        #    branch_cells.append(notebook["cells"][i])
+
+        # Insert kishu checkout code back to the previous branch.
+        #original_cells.extend(branch_cells)
+        #kishu_checkout_code = get_kishu_checkout_str(len(notebook["cells"]))
+        #original_cells.append(new_code_cell(source=kishu_checkout_code))
 
         # Execute the notebook cells.
         start = time.time()

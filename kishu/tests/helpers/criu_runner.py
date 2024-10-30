@@ -43,6 +43,7 @@ def get_criu_store_str(notebook_name, filename, cell_num, pid) -> str:
             """    results_file.write(half_str + ',checkpoint-time,' + end_format + '\\n')""",
             """    results_file.write(half_str + ',checkpoint-size,' + str(filesize) + '\\n')""",
             """    results_file.write(half_str + ',success,' + str(resp.success) + '\\n')""",
+            """    results_file.write(resp + '\\n')"""
         ]
     )
 
@@ -66,7 +67,8 @@ def get_criu_store_incremental_str(notebook_name, filename, cell_num, pid) -> st
             "s.connect('/data/elastic-notebook/criu-rpc')",
             "s.send(req.SerializeToString())",
             "start = time.time()",
-            "data = s.recv(2048)",
+            "resp = rpc.criu_resp()",
+            "resp.ParseFromString(s.recv(2048))",
             "end = time.time() - start",
             "end_format = '{:.8f}'.format(end)",
             "filesize = 0",
@@ -78,6 +80,8 @@ def get_criu_store_incremental_str(notebook_name, filename, cell_num, pid) -> st
             f"    half_str = 'criu_incremental_True,{notebook_name},{cell_num}'",
             """    results_file.write(half_str + ',checkpoint-time,' + end_format + '\\n')""",
             """    results_file.write(half_str + ',checkpoint-size,' + str(filesize) + '\\n')""",
+            """    results_file.write(half_str + ',success,' + str(resp.success) + '\\n')""",
+            """    results_file.write(str(resp) + '\\n')"""
         ]
     )
 
@@ -95,13 +99,13 @@ def execute_criu_test(notebook_name, cell_num_to_restore: int, incremental_dump:
     new_cells = []
     for i in range(len(notebook["cells"])):
         new_cells.append(notebook["cells"][i])
-        if i == len(notebook["cells"]) - 1:
-            if incremental_dump:
-                new_cells.append(
-                    new_code_cell(source=get_criu_store_incremental_str(notebook_name, filename, i, os.getpid())))
-            else:
-                new_cells.append(
-                    new_code_cell(source=get_criu_store_str(notebook_name, filename, i, os.getpid())))
+        #if i == len(notebook["cells"]) - 1:
+        if incremental_dump:
+            new_cells.append(
+                new_code_cell(source=get_criu_store_incremental_str(notebook_name, filename, i, os.getpid())))
+        else:
+            new_cells.append(
+                new_code_cell(source=get_criu_store_str(notebook_name, filename, i, os.getpid())))
 
     # Initialize CRIU rpc.
     new_cells.insert(0, new_code_cell(source="""
@@ -158,16 +162,16 @@ def execute_ipyflow_test(notebook_name, cell_num_to_restore: int, incremental_du
         shell.run_cell(cell.source)
         ipyflow_times.append(time.time() - start)
 
-    # diff = [ipyflow_times[i] - raw_times[i] for i in range(len(raw_times))]
-    # print(ipyflow_times)
-    # print(raw_times)
-    # print(diff)
-    # print(sum(diff))
+    diff = [ipyflow_times[i] - raw_times[i] for i in range(len(raw_times))]
+    print(ipyflow_times)
+    print(raw_times)
+    print(diff)
+    print(sum(diff))
 
-    # with open(f'/data/elastic-notebook/tmp/{notebook_name}_ipyflow_diff.pkl', 'wb') as f:  # open a text file
-    #     pickle.dump(diff, f) # serialize the list
-    with open(f'/data/elastic-notebook/tmp/{notebook_name}_ipyflow_diff1.pkl', 'wb') as f:  # open a text file
-        pickle.dump(ipyflow_times, f) # serialize the list
+    with open(f'/data/elastic-notebook/tmp/{notebook_name}_ipyflow_diff.pkl', 'wb') as f:  # open a text file
+        pickle.dump(diff, f) # serialize the list
+    # with open(f'/data/elastic-notebook/tmp/{notebook_name}_ipyflow_diff1.pkl', 'wb') as f:  # open a text file
+    #     pickle.dump(ipyflow_times, f) # serialize the list
 
     # # Execute the notebook cells.
     # exec_prep = ExecutePreprocessor(timeout=1200, kernel_name="python3")

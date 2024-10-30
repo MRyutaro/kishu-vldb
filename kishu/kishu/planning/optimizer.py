@@ -164,7 +164,10 @@ class IncrementalLoadOptimizer():
         in the database useful_stored_vses.
     """
     def __init__(
-        self, ahg: AHG,
+        self, 
+        vn: List[VersionedName],
+        #REVISION-----
+        #ahg: AHG,
         target_active_vss: List[VariableSnapshot],
         useful_active_vses: Set[VersionedName],
         useful_stored_vses: Dict[VersionedName, VersionedNameContext]
@@ -178,7 +181,9 @@ class IncrementalLoadOptimizer():
             @param already_stored_vss: A List of Variable snapshots already stored in previous plans. They can be
                 loaded as part of the restoration plan to save restoration time.
         """
-        self.ahg = ahg
+        #REVISION-----
+        #self.ahg = ahg
+        self.vn = vn
         self.target_active_vss = target_active_vss
         self.useful_active_vses = useful_active_vses
         self.useful_stored_vses = useful_stored_vses

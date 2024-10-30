@@ -95,6 +95,8 @@ class NotebookHandler:
                     break
         except TimeoutError:
             print("Cell execution timed out.")
+        print("stream output:", stream_output)
+        print("data output:", data_output)
 
         return stream_output, data_output
 

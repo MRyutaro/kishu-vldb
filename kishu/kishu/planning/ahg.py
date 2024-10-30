@@ -84,7 +84,9 @@ class AHG:
         self._cell_executions: List[CellExecution] = []
 
         # All variable snapshots in the session.
-        self._variable_snapshots: List[VariableSnapshot] = []
+        #REVISION
+        #self._variable_snapshots: List[VariableSnapshot] = {}
+        self._variable_snapshots: Dict[VersionedName, VariableSnapshot] = {}
 
         # Variable snapshots that are currently active, i.e., their values are currently in the namespace.
         # The keys are the names of the variable snapshots for fast lookup.
@@ -215,7 +217,11 @@ class AHG:
         # Add created and modified VSes to the active variables list.
         self._active_variable_snapshots.update({vs.name: vs for vs in output_vss_create})
         self._active_variable_snapshots.update({vs.name: vs for vs in output_vss_modify})
-        self._variable_snapshots += output_vss_create + output_vss_modify + output_vss_delete
+
+        for vs in output_vss_create + output_vss_modify + output_vss_delete:
+            self._variable_snapshots[VersionedName(vs.name, vs.version)] = vs
+        #REVISION-----
+        # self._variable_snapshots += output_vss_create + output_vss_modify + output_vss_delete
 
     def get_cell_executions(self) -> List[CellExecution]:
         return self._cell_executions
@@ -238,7 +244,7 @@ class AHG:
             Returns the decoded serialized bytestring (str type) of the AHG.
             Required as the AHG is not JSON serializable by default.
         """
-        return dill.dumps(self).decode('latin1')
+        return dill.dumps(self)
 
     @staticmethod
     def deserialize(ahg_string: str) -> AHG:
@@ -246,6 +252,24 @@ class AHG:
             Returns the AHG object from serialized AHG in string format.
         """
         return dill.loads(ahg_string.encode('latin1'))
+
+    #REVISION-----
+    def serialize_active_vses(self) -> str:
+        return dill.dumps([VersionedName(vs.name, vs.version) for vs in self.get_active_variable_snapshots()]).decode('latin1')
+
+    #REVISION-----
+    def get_vs_by_versioned_name(self, versioned_name: VersionedName) -> VariableSnapshot:
+        return self._variable_snapshots[versioned_name]
+
+    #REVISION-----
+    @staticmethod
+    def deserialize_active_vses(active_vs_string: str) -> List[VersionedName]:
+        return dill.loads(active_vs_string.encode('latin1'))
+
+    def replace_active_vses(self, versioned_names: List[VersionedName]) -> None:
+        self._active_variable_snapshots.clear()
+        for versioned_name in versioned_names:
+            self._active_variable_snapshots[versioned_name.name] = self._variable_snapshots[versioned_name]
 
     @staticmethod
     def union_find(variables: Set[str], linked_variables: List[Tuple[str, str]]) -> Set[FrozenSet[str]]:

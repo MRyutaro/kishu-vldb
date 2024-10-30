@@ -13,6 +13,7 @@ import enum
 import sqlite3
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+import sys
 
 import kishu.planning.plan
 
@@ -21,6 +22,7 @@ from kishu.storage.path import KishuPath
 
 
 COMMIT_ENTRY_TABLE = 'commit_entry'
+SESSION_STATE_TABLE = 'session_state'
 
 
 class CommitEntryKind(str, enum.Enum):
@@ -67,6 +69,7 @@ class CommitEntry:
     message: str = ""
     timestamp: float = 0.0
     ahg_string: Optional[str] = None
+    active_vses_string: Optional[str] = None
     code_version: int = 0
     varset_version: int = 0
 
@@ -94,10 +97,14 @@ class KishuCommit:
         con = sqlite3.connect(self.database_path)
         cur = con.cursor()
         cur.execute(f'create table if not exists {COMMIT_ENTRY_TABLE} (commit_id text primary key, data blob)')
+        cur.execute(f'create table if not exists {SESSION_STATE_TABLE} (commit_id text primary key, data blob)')
+        # cur.execute(f'create unique index session_state_idx on {SESSION_STATE_TABLE}(commit_id)')
+        # cur.execute(f'create unique index commit_entry_idx on {COMMIT_ENTRY_TABLE}(commit_id)')
         con.commit()
 
     def store_commit(self, commit_entry: CommitEntry) -> None:
         commit_entry_dill = dill.dumps(commit_entry)
+        session_state_dill = dill.dumps(commit_entry.active_vses_string)
         con = sqlite3.connect(self.database_path)
         cur = con.cursor()
         cur.execute(
@@ -105,6 +112,12 @@ class KishuCommit:
             (commit_entry.commit_id, memoryview(commit_entry_dill))
         )
         con.commit()
+        cur.execute(
+            f"insert into {SESSION_STATE_TABLE} values (?, ?)",
+            (commit_entry.commit_id, memoryview(session_state_dill))
+        )
+        con.commit()
+        return sys.getsizeof(dill.dumps(commit_entry.active_vses_string))
 
     def update_commit(self, commit_entry: CommitEntry) -> None:
         commit_entry_dill = dill.dumps(commit_entry)
@@ -130,6 +143,20 @@ class KishuCommit:
         con.commit()
         return result
 
+    def get_session_state(self, commit_id: str):
+        con = sqlite3.connect(self.database_path)
+        cur = con.cursor()
+        cur.execute(
+            f"select data from {SESSION_STATE_TABLE} where commit_id = ?",
+            (commit_id, )
+        )
+        res: tuple = cur.fetchone()
+        if not res:
+            raise MissingCommitEntryError(commit_id)
+        result = dill.loads(res[0])
+        con.commit()
+        return result
+
     def get_commits(self, commit_ids: List[str]) -> Dict[str, CommitEntry]:
         """
         Returns a mapping from requested commit ID to its data. Order and completeness are not
@@ -146,6 +173,19 @@ class KishuCommit:
         res = cur.fetchall()
         for key, data in res:
             result[key] = dill.loads(data)
+        con.commit()
+        return result
+
+    def get_commit_table_size(self) -> int:
+        con = sqlite3.connect(self.database_path)
+        cur = con.cursor()
+        cur.execute(
+            f"SELECT SUM('pgsize') FROM 'dbstat' WHERE name='{COMMIT_ENTRY_TABLE}'"
+        )
+        res: tuple = cur.fetchone()
+        if not res:
+            raise MissingCommitEntryError(commit_id)
+        result = int(res[0])
         con.commit()
         return result
 
