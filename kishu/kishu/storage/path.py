@@ -10,7 +10,7 @@ ENV_KISHU_PATH_ROOT = "KISHU_PATH_ROOT"
 class KishuPath:
     # ROOT = os.environ.get(ENV_KISHU_PATH_ROOT, None) or str(pathlib.Path.home())
     # Path to NFS used for experiments
-    ROOT = '/data/elastic-notebook/tmp'
+    ROOT = './.data/tmp'
 
     @staticmethod
     def kishu_directory() -> str:

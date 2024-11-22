@@ -28,3 +28,12 @@ xxhash
 
 # Watchdog
 loguru
+
+# add by MRyutaro
+cloudpickle
+matplotlib
+scipy
+seaborn
+scikit-learn
+torch
+

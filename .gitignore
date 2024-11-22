@@ -163,3 +163,6 @@ yarn-error.log*
 
 #ide
 .idea
+
+# add
+.linux-venv
