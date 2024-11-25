@@ -36,4 +36,6 @@ scipy
 seaborn
 scikit-learn
 torch
-
+jupyter
+jupyterlab
+jupyterlab-language-pack-ja-JP

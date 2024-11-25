@@ -334,7 +334,7 @@ class KishuCommand:
                 message=f"{type(e).__name__}: {str(e)}",
             )
         init_result = JupyterConnection(kernel_id).execute_one_command(
-            pre_command=f"from kishu.kishu import init_kishu; init_kishu(\"{notebook_path.resolve()}\")",
+            pre_command=f"from kishu import init_kishu; init_kishu(\"{notebook_path.resolve()}\")",
             command="str(_kishu)",
         )
         notebook_key = NotebookId.parse_key_from_path_or_key(notebook_path_str)
